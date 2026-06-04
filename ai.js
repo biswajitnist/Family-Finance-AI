@@ -2,6 +2,10 @@ const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2';
 const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 90000);
 
+function selectedModel(model) {
+  return String(model || OLLAMA_MODEL).trim() || OLLAMA_MODEL;
+}
+
 function ollamaError(e) {
   const cause = e && e.cause ? ` (${e.cause.code || e.cause.message || e.cause})` : '';
   return `${e.message || e}${cause}`;
@@ -59,25 +63,27 @@ function fallbackExtract(text, defaultYear = new Date().getFullYear()) {
 
 async function extractTransactionsWithAI(text, options = {}) {
   const defaultYear = options.year || new Date().getFullYear();
+  const model = selectedModel(options.model);
   const prompt = `You are a private finance OCR parser for Biswajit. Extract transactions from OCR/bank statement text.\n\nReturn ONLY valid JSON. No markdown. No explanations.\nSchema:\n{ "transactions": [ { "date":"YYYY-MM-DD", "merchant":"clean merchant", "description":"short original detail", "amount": -12.34, "source":"Commerzbank|Amazon Visa|OCR|PDF|CSV", "category":"one of: Income, Housing, Utilities, Groceries, Indian Staples, Household, Family Food, Family Activity, Kids, Transport, Insurance, Pension, Investments, Loan / Banking, Telecom, India Transfer, Shopping, Health, Subscriptions, Misc / Review", "subcategory":"short", "essential": true, "avoidable": false, "confidence": 0.0 } ] }\n\nRules:\n- Ignore Amazon points lines and 0.00 point debit rows.\n- Amounts with minus are expenses. Salary/Kindergeld are positive income.\n- Convert comma decimals to dot decimals.\n- For dates like 25 Mar use year ${defaultYear}.\n- Vaghani, Kabul Markt, Namaste Deutschland, Indian stores = Indian Staples.\n- EDEKA, Penny, REWE, Aldi, Kaufland = Groceries.\n- Badeland, Bmoovd, kids activity food = Family Activity or Family Food, not luxury restaurant.\n- Vodafone = Telecom. LSW/Einhundert = Utilities. Neuland = Housing. Scalable = Investments. Swiss Life = Pension.\n\nTEXT:\n${text.slice(0, 12000)}`;
 
   try {
-    const data = await ollamaFetch('/api/generate', { model: OLLAMA_MODEL, prompt, stream: false, format: 'json' }, { timeoutMs: 120000 });
+    const data = await ollamaFetch('/api/generate', { model, prompt, stream: false, format: 'json' }, { timeoutMs: 120000 });
     const raw = data.response || '{}';
     const parsed = JSON.parse(raw);
-    return { ok: true, transactions: parsed.transactions || [], raw };
+    return { ok: true, model, transactions: parsed.transactions || [], raw };
   } catch (e) {
-    return { ok: false, error: ollamaError(e), transactions: fallbackExtract(text, defaultYear), raw: null };
+    return { ok: false, model, error: ollamaError(e), transactions: fallbackExtract(text, defaultYear), raw: null };
   }
 }
 
 async function askAI(question, context) {
+  const model = selectedModel(context && context.model);
   const prompt = `You are Biswajit's local finance assistant. Give practical, accurate finance analysis from the local SQLite data. Be concise.\n\nContext JSON:\n${JSON.stringify(context).slice(0, 14000)}\n\nQuestion: ${question}`;
   try {
-    const data = await ollamaFetch('/api/generate', { model: OLLAMA_MODEL, prompt, stream: false });
-    return { ok: true, answer: data.response };
+    const data = await ollamaFetch('/api/generate', { model, prompt, stream: false });
+    return { ok: true, model, answer: data.response };
   } catch (e) {
-    return { ok: false, answer: `Ollama not available: ${ollamaError(e)}` };
+    return { ok: false, model, answer: `Ollama not available: ${ollamaError(e)}` };
   }
 }
 

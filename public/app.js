@@ -1,6 +1,16 @@
 const eur = n => new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Number(n||0));
 async function json(url, opts){ const r = await fetch(url, opts); if(!r.ok) throw new Error(await r.text()); return r.json(); }
-async function checkStatus(){ const s = await json('/api/status'); document.getElementById('ollama').textContent = s.ok ? `Ollama OK: ${s.model}` : `Ollama offline: ${s.error}`; }
+function selectedModel(){ return document.getElementById('model').value || localStorage.getItem('financeModel') || 'llama3.2'; }
+function saveSelectedModel(){ localStorage.setItem('financeModel', selectedModel()); checkStatus(); }
+async function checkStatus(){
+  const s = await json('/api/status');
+  const picker = document.getElementById('model');
+  const saved = localStorage.getItem('financeModel') || s.model;
+  picker.innerHTML = (s.models || []).map(m => `<option value="${m.name}">${m.name}</option>`).join('');
+  if (saved && [...picker.options].some(o => o.value === saved)) picker.value = saved;
+  else if (s.model && [...picker.options].some(o => o.value === s.model)) picker.value = s.model;
+  document.getElementById('ollama').textContent = s.ok ? `Ollama OK: ${selectedModel()}` : `Ollama offline: ${s.error}`;
+}
 function setUploadStatus(message, type = 'info') {
   const el = document.getElementById('uploadResult');
   el.className = type;
@@ -9,6 +19,7 @@ function setUploadStatus(message, type = 'info') {
 function formatUploadResult(data) {
   const lines = [
     `Processed ${data.fileName || 'file'} (${data.sourceType || 'unknown'})`,
+    `Model: ${data.model || selectedModel()}`,
     `OCR text: ${data.ocrChars || 0} characters`,
     `Saved: ${data.inserted || 0} transactions`,
     `Skipped duplicates/invalid rows: ${data.skipped || 0}`
@@ -24,6 +35,7 @@ function formatUploadResult(data) {
 async function uploadFile(){
   const f = document.getElementById('file').files[0]; if(!f) return alert('Select a file first');
   const fd = new FormData(); fd.append('file', f); fd.append('year', document.getElementById('year').value || '2026');
+  fd.append('model', selectedModel());
   setUploadStatus('Scanning OCR/text, sending to local Ollama, saving to SQLite...');
   try {
     const data = await json('/api/upload', { method:'POST', body: fd });
@@ -47,7 +59,7 @@ async function askAI(q){
   const question = q || document.getElementById('question').value; const month = document.getElementById('month').value;
   aiAnswer.textContent = 'Asking local Ollama...';
   try {
-    const a = await json('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,month})});
+    const a = await json('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,month,model:selectedModel()})});
     aiAnswer.textContent = a.answer;
   } catch (e) {
     aiAnswer.textContent = e.message;
@@ -57,4 +69,5 @@ async function saveRule(){
   await json('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pattern:rulePattern.value,merchant_clean:ruleMerchant.value,category:ruleCategory.value,subcategory:ruleSub.value,essential:true,avoidable:false})});
   alert('Rule saved. Future imports will use it.');
 }
+document.getElementById('model').addEventListener('change', saveSelectedModel);
 checkStatus(); loadAll();

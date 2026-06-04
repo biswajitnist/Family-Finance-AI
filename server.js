@@ -60,7 +60,7 @@ app.post('/api/upload', upload.single('file'), async (req,res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const extracted = await extractText(req.file.path, req.file.originalname);
     const uploadRow = await run(`INSERT INTO uploads(filename, original_name, source_type, extracted_text) VALUES (?, ?, ?, ?)`, [req.file.filename, req.file.originalname, extracted.type, extracted.text]);
-    const ai = await extractTransactionsWithAI(extracted.text, { year: req.body.year || new Date().getFullYear() });
+    const ai = await extractTransactionsWithAI(extracted.text, { year: req.body.year || new Date().getFullYear(), model: req.body.model });
     await run('UPDATE uploads SET ai_json=? WHERE id=?', [JSON.stringify(ai), uploadRow.id]);
     const result = await saveTransactions(ai.transactions, uploadRow.id);
     res.json({
@@ -69,6 +69,7 @@ app.post('/api/upload', upload.single('file'), async (req,res) => {
       fileName: req.file.originalname,
       sourceType: extracted.type,
       ocrChars: extracted.text.length,
+      model: ai.model,
       aiOk: ai.ok,
       aiError: ai.error || null,
       inserted: result.inserted,
@@ -128,7 +129,7 @@ app.post('/api/ask', async (req,res) => {
   const month = req.body.month;
   const summary = await get(`SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) income, COALESCE(SUM(CASE WHEN amount<0 THEN amount ELSE 0 END),0) expenses, COALESCE(SUM(amount),0) net FROM transactions ${month?'WHERE month=?':''}`, month?[month]:[]);
   const categories = await all(`SELECT category, merchant, ROUND(SUM(amount),2) total, COUNT(*) count FROM transactions ${month?'WHERE month=?':''} GROUP BY category, merchant ORDER BY total ASC LIMIT 100`, month?[month]:[]);
-  const answer = await askAI(req.body.question || 'Analyze my month-end cashflow.', { month, summary, categories });
+  const answer = await askAI(req.body.question || 'Analyze my month-end cashflow.', { month, model: req.body.model, summary, categories });
   if (answer.ok) await run('INSERT INTO ai_insights(month, question, answer) VALUES (?, ?, ?)', [month || '', req.body.question || '', answer.answer]);
   res.json(answer);
 });
