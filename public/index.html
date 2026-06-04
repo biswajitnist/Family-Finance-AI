@@ -54,6 +54,17 @@
       </div>
     </section>
 
+    <section class="card" id="reviewCard">
+      <div class="section-head">
+        <h2>Review Import</h2>
+        <div>
+          <button onclick="saveReviewed()">Save Selected</button>
+          <button class="secondary" onclick="discardReviewed()">Discard Review</button>
+        </div>
+      </div>
+      <table id="pendingTable"><thead><tr><th>Use</th><th>Date</th><th>Merchant</th><th>Category</th><th>Amount</th><th>Description</th><th>Confidence</th><th></th></tr></thead><tbody></tbody></table>
+    </section>
+
     <section class="card">
       <h2>AI Finance Assistant</h2>
       <textarea id="question">What is my month-end cashflow and where is the pressure?</textarea>

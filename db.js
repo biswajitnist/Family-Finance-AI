@@ -58,6 +58,26 @@ async function initDb() {
     FOREIGN KEY(upload_id) REFERENCES uploads(id)
   )`);
 
+  await run(`CREATE TABLE IF NOT EXISTS pending_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    upload_id INTEGER,
+    tx_date TEXT NOT NULL,
+    merchant TEXT NOT NULL,
+    description TEXT,
+    amount REAL NOT NULL,
+    currency TEXT DEFAULT 'EUR',
+    source TEXT DEFAULT 'Unknown',
+    account TEXT,
+    category TEXT DEFAULT 'Uncategorized',
+    subcategory TEXT,
+    essential INTEGER DEFAULT 1,
+    avoidable INTEGER DEFAULT 0,
+    confidence REAL DEFAULT 0.5,
+    selected INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(upload_id) REFERENCES uploads(id)
+  )`);
+
   await run(`CREATE TABLE IF NOT EXISTS merchant_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pattern TEXT UNIQUE NOT NULL,

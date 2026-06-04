@@ -59,6 +59,25 @@ async function saveTransactions(transactions, uploadId) {
   return { inserted, skipped, saved };
 }
 
+async function savePendingTransactions(transactions, uploadId) {
+  let staged = 0, skipped = 0;
+  const pending = [];
+  for (let tx of transactions) {
+    if (!tx.date || !tx.merchant || tx.amount === undefined || tx.amount === null) { skipped++; continue; }
+    tx = await applyRules(tx);
+    const amount = Number(tx.amount);
+    if (!Number.isFinite(amount)) { skipped++; continue; }
+    const result = await run(`INSERT INTO pending_transactions
+      (upload_id, tx_date, merchant, description, amount, currency, source, account, category, subcategory, essential, avoidable, confidence, selected)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`, [
+        uploadId, tx.date, normalizeMerchant(tx.merchant), tx.description || '', amount, tx.currency || 'EUR', tx.source || 'AI Extracted', tx.account || '', tx.category || 'Uncategorized', tx.subcategory || '', tx.essential ? 1 : 0, tx.avoidable ? 1 : 0, tx.confidence || 0.5
+      ]);
+    staged++;
+    pending.push({ id: result.id, ...tx });
+  }
+  return { staged, skipped, pending };
+}
+
 app.get('/api/status', async (req,res) => res.json(await ollamaStatus()));
 
 app.post('/api/upload', upload.single('file'), async (req,res) => {
@@ -69,8 +88,8 @@ app.post('/api/upload', upload.single('file'), async (req,res) => {
     const ai = await extractTransactionsWithAI(extracted.text, { year: req.body.year || new Date().getFullYear(), model: req.body.model });
     await run('UPDATE uploads SET ai_json=? WHERE id=?', [JSON.stringify(ai), uploadRow.id]);
     const saveFallback = req.body.saveFallback === 'true';
-    const shouldSave = ai.ok || saveFallback;
-    const result = shouldSave ? await saveTransactions(ai.transactions, uploadRow.id) : { inserted: 0, skipped: 0, saved: [] };
+    const shouldStage = ai.ok || saveFallback;
+    const result = shouldStage ? await savePendingTransactions(ai.transactions, uploadRow.id) : { staged: 0, skipped: 0, pending: [] };
     res.json({
       ok: true,
       uploadId: uploadRow.id,
@@ -81,11 +100,14 @@ app.post('/api/upload', upload.single('file'), async (req,res) => {
       chunks: ai.chunks || 1,
       aiOk: ai.ok,
       aiError: ai.error || null,
-      inserted: result.inserted,
+      staged: result.staged,
+      inserted: 0,
       skipped: result.skipped,
-      savedCount: result.saved.length,
+      pendingCount: result.pending.length,
+      savedCount: 0,
       usedFallback: !ai.ok,
-      fallbackSaved: !ai.ok && saveFallback,
+      fallbackSaved: false,
+      fallbackStaged: !ai.ok && saveFallback,
       saveBlocked: !ai.ok && !saveFallback,
       preview: extracted.text.slice(0, 1000)
     });
@@ -93,6 +115,7 @@ app.post('/api/upload', upload.single('file'), async (req,res) => {
 });
 
 app.delete('/api/uploads/:id', async (req,res) => {
+  await run('DELETE FROM pending_transactions WHERE upload_id=?', [req.params.id]);
   await run('DELETE FROM transactions WHERE upload_id=?', [req.params.id]);
   await run('DELETE FROM uploads WHERE id=?', [req.params.id]);
   res.json({ ok:true });
@@ -113,6 +136,72 @@ app.patch('/api/transactions/:id', async (req,res) => {
   if (!CATEGORIES.includes(category)) return res.status(400).json({ error: 'Invalid category' });
   const result = await run('UPDATE transactions SET category=? WHERE id=?', [category, req.params.id]);
   res.json({ ok:true, changed: result.changes });
+});
+
+app.get('/api/pending', async (req,res) => {
+  const where = []; const params = [];
+  if (req.query.uploadId) { where.push('upload_id=?'); params.push(req.query.uploadId); }
+  const sql = `SELECT * FROM pending_transactions ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY tx_date DESC, id DESC LIMIT 1000`;
+  res.json(await all(sql, params));
+});
+
+app.patch('/api/pending/:id', async (req,res) => {
+  const allowed = ['tx_date', 'merchant', 'description', 'amount', 'category', 'subcategory', 'selected'];
+  const updates = [];
+  const params = [];
+  for (const key of allowed) {
+    if (!(key in req.body)) continue;
+    if (key === 'category' && !CATEGORIES.includes(String(req.body[key]).trim())) return res.status(400).json({ error: 'Invalid category' });
+    if (key === 'amount' && !Number.isFinite(Number(req.body[key]))) return res.status(400).json({ error: 'Invalid amount' });
+    updates.push(`${key}=?`);
+    params.push(key === 'selected' ? (req.body[key] ? 1 : 0) : req.body[key]);
+  }
+  if (!updates.length) return res.json({ ok:true, changed: 0 });
+  params.push(req.params.id);
+  const result = await run(`UPDATE pending_transactions SET ${updates.join(', ')} WHERE id=?`, params);
+  res.json({ ok:true, changed: result.changes });
+});
+
+app.delete('/api/pending/:id', async (req,res) => {
+  await run('DELETE FROM pending_transactions WHERE id=?', [req.params.id]);
+  res.json({ ok:true });
+});
+
+app.post('/api/pending/commit', async (req,res) => {
+  const where = ['selected=1']; const params = [];
+  if (req.body.uploadId) { where.push('upload_id=?'); params.push(req.body.uploadId); }
+  const rows = await all(`SELECT * FROM pending_transactions WHERE ${where.join(' AND ')} ORDER BY tx_date, id`, params);
+  const result = { inserted: 0, skipped: 0, saved: [] };
+  for (const r of rows) {
+    const saved = await saveTransactions([{
+      date: r.tx_date,
+      merchant: r.merchant,
+      description: r.description,
+      amount: r.amount,
+      currency: r.currency,
+      source: r.source,
+      account: r.account,
+      category: r.category,
+      subcategory: r.subcategory,
+      essential: !!r.essential,
+      avoidable: !!r.avoidable,
+      confidence: r.confidence
+    }], r.upload_id);
+    result.inserted += saved.inserted;
+    result.skipped += saved.skipped;
+    result.saved.push(...saved.saved);
+  }
+  if (rows.length) {
+    const ids = rows.map(r => r.id);
+    await run(`DELETE FROM pending_transactions WHERE id IN (${ids.map(()=>'?').join(',')})`, ids);
+  }
+  res.json({ ok:true, reviewed: rows.length, ...result });
+});
+
+app.post('/api/pending/discard', async (req,res) => {
+  if (req.body.uploadId) await run('DELETE FROM pending_transactions WHERE upload_id=?', [req.body.uploadId]);
+  else await run('DELETE FROM pending_transactions');
+  res.json({ ok:true });
 });
 
 app.post('/api/rules', async (req,res) => {

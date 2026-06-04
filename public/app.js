@@ -29,15 +29,15 @@ function formatUploadResult(data) {
     `Model: ${data.model || selectedModel()}`,
     `AI chunks: ${data.chunks || 1}`,
     `OCR text: ${data.ocrChars || 0} characters`,
-    `Saved: ${data.inserted || 0} transactions`,
+    `Staged for review: ${data.staged || 0} transactions`,
     `Skipped duplicates/invalid rows: ${data.skipped || 0}`
   ];
   if (data.aiOk) {
-    lines.push('AI extraction: OK');
+    lines.push('AI extraction: OK. Review rows below, then save selected.');
   } else {
     lines.push('AI extraction: unavailable, used OCR fallback');
-    if (data.saveBlocked) lines.push('Fallback rows were not saved. Review/retry before saving.');
-    if (data.fallbackSaved) lines.push('Fallback rows were saved by request.');
+    if (data.saveBlocked) lines.push('Fallback rows were not staged. Review/retry before saving.');
+    if (data.fallbackStaged) lines.push('Fallback rows were staged by request. Review carefully before saving.');
     if (data.aiError) lines.push(`AI detail: ${data.aiError}`);
   }
   return lines.join('\n');
@@ -56,7 +56,7 @@ async function uploadFile(){
     setUploadStatus(e.message, 'error');
   }
 }
-async function loadAll(){ await Promise.all([loadSummary(), loadTransactions(), loadForecast()]); }
+async function loadAll(){ await Promise.all([loadSummary(), loadTransactions(), loadPending(), loadForecast()]); }
 async function loadSummary(){
   const m = document.getElementById('month').value; const s = await json('/api/summary?month='+encodeURIComponent(m));
   income.textContent = eur(s.totals.income); expenses.textContent = eur(s.totals.expenses); net.textContent = eur(s.totals.net);
@@ -68,12 +68,51 @@ function categorySelect(row){
   return `<select class="category-select" data-transaction-id="${row.id}">${options}</select>`;
 }
 async function loadTransactions(){ const m = document.getElementById('month').value; const rows = await json('/api/transactions?month='+encodeURIComponent(m)); fill('txTable', rows.map(r=>[r.tx_date, r.merchant, categorySelect(r), `<span class="${r.amount>=0?'amount-pos':'amount-neg'}">${eur(r.amount)}</span>`, Math.round((r.confidence||0)*100)+'%'])); }
+function pendingCategorySelect(row){
+  const options = categories.map(c => `<option value="${escapeHtml(c)}"${c === row.category ? ' selected' : ''}>${escapeHtml(c)}</option>`).join('');
+  return `<select class="pending-field" data-field="category" data-id="${row.id}">${options}</select>`;
+}
+function pendingInput(row, field, type = 'text'){
+  return `<input class="pending-field" data-field="${field}" data-id="${row.id}" type="${type}" value="${escapeHtml(row[field])}" />`;
+}
+async function loadPending(){
+  const rows = await json('/api/pending');
+  document.getElementById('reviewCard').style.display = rows.length ? '' : 'none';
+  fill('pendingTable', rows.map(r=>[
+    `<input class="pending-field" data-field="selected" data-id="${r.id}" type="checkbox"${r.selected ? ' checked' : ''} />`,
+    pendingInput(r, 'tx_date', 'date'),
+    pendingInput(r, 'merchant'),
+    pendingCategorySelect(r),
+    pendingInput(r, 'amount', 'number'),
+    pendingInput(r, 'description'),
+    Math.round((r.confidence||0)*100)+'%',
+    `<button class="danger small" onclick="removePending(${r.id})">Remove</button>`
+  ]));
+}
 async function loadForecast(){ const f = await json('/api/forecast'); forecast.textContent = eur(f.simpleAverageNet); }
 function fill(tableId, rows){ const tbody = document.querySelector(`#${tableId} tbody`); tbody.innerHTML = rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join(''); }
 async function updateCategory(id, category){
   await json('/api/transactions/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({category})});
   await loadSummary();
 }
+async function updatePending(id, field, value){
+  await json('/api/pending/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({[field]: value})});
+}
+async function removePending(id){
+  await json('/api/pending/'+id,{method:'DELETE'});
+  await loadPending();
+}
+async function saveReviewed(){
+  const result = await json('/api/pending/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+  setUploadStatus(`Saved ${result.inserted} reviewed transactions. Skipped ${result.skipped}.`, result.inserted ? 'success' : 'warning');
+  await loadAll();
+}
+async function discardReviewed(){
+  await json('/api/pending/discard',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+  setUploadStatus('Review rows discarded.', 'warning');
+  await loadAll();
+}
+Object.assign(window, { uploadFile, loadAll, askAI, saveRule, removePending, saveReviewed, discardReviewed });
 async function askAI(q){
   const question = q || document.getElementById('question').value; const month = document.getElementById('month').value;
   aiAnswer.textContent = 'Asking local Ollama...';
@@ -91,5 +130,9 @@ async function saveRule(){
 document.getElementById('model').addEventListener('change', saveSelectedModel);
 document.addEventListener('change', e => {
   if (e.target.classList.contains('category-select')) updateCategory(e.target.dataset.transactionId, e.target.value);
+  if (e.target.classList.contains('pending-field')) {
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    updatePending(e.target.dataset.id, e.target.dataset.field, value);
+  }
 });
 checkStatus(); loadAll();
