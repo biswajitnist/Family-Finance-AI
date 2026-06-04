@@ -62,7 +62,9 @@ app.post('/api/upload', upload.single('file'), async (req,res) => {
     const uploadRow = await run(`INSERT INTO uploads(filename, original_name, source_type, extracted_text) VALUES (?, ?, ?, ?)`, [req.file.filename, req.file.originalname, extracted.type, extracted.text]);
     const ai = await extractTransactionsWithAI(extracted.text, { year: req.body.year || new Date().getFullYear(), model: req.body.model });
     await run('UPDATE uploads SET ai_json=? WHERE id=?', [JSON.stringify(ai), uploadRow.id]);
-    const result = await saveTransactions(ai.transactions, uploadRow.id);
+    const saveFallback = req.body.saveFallback === 'true';
+    const shouldSave = ai.ok || saveFallback;
+    const result = shouldSave ? await saveTransactions(ai.transactions, uploadRow.id) : { inserted: 0, skipped: 0, saved: [] };
     res.json({
       ok: true,
       uploadId: uploadRow.id,
@@ -70,15 +72,24 @@ app.post('/api/upload', upload.single('file'), async (req,res) => {
       sourceType: extracted.type,
       ocrChars: extracted.text.length,
       model: ai.model,
+      chunks: ai.chunks || 1,
       aiOk: ai.ok,
       aiError: ai.error || null,
       inserted: result.inserted,
       skipped: result.skipped,
       savedCount: result.saved.length,
       usedFallback: !ai.ok,
+      fallbackSaved: !ai.ok && saveFallback,
+      saveBlocked: !ai.ok && !saveFallback,
       preview: extracted.text.slice(0, 1000)
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/uploads/:id', async (req,res) => {
+  await run('DELETE FROM transactions WHERE upload_id=?', [req.params.id]);
+  await run('DELETE FROM uploads WHERE id=?', [req.params.id]);
+  res.json({ ok:true });
 });
 
 app.get('/api/transactions', async (req,res) => {

@@ -61,19 +61,93 @@ function fallbackExtract(text, defaultYear = new Date().getFullYear()) {
   return txs;
 }
 
+function chunkText(text, maxChars = 4500) {
+  const lines = String(text || '').split(/\n+/);
+  const chunks = [];
+  let current = '';
+  for (const line of lines) {
+    if (current && current.length + line.length + 1 > maxChars) {
+      chunks.push(current);
+      current = '';
+    }
+    current += `${line}\n`;
+  }
+  if (current.trim()) chunks.push(current);
+  return chunks;
+}
+
+function normalizeTransactions(rows) {
+  return (Array.isArray(rows) ? rows : []).map(tx => ({
+    date: String(tx.date || '').slice(0, 10),
+    merchant: String(tx.merchant || '').trim(),
+    description: String(tx.description || '').trim(),
+    amount: Number(tx.amount),
+    source: tx.source || 'AI Extracted',
+    category: tx.category || 'Uncategorized',
+    subcategory: tx.subcategory || '',
+    essential: Boolean(tx.essential),
+    avoidable: Boolean(tx.avoidable),
+    confidence: Number.isFinite(Number(tx.confidence)) ? Number(tx.confidence) : 0.7
+  })).filter(tx => /^\d{4}-\d{2}-\d{2}$/.test(tx.date) && tx.merchant && Number.isFinite(tx.amount));
+}
+
+function extractionPrompt(text, defaultYear, part, totalParts) {
+  const partLine = totalParts > 1 ? `\nThis is part ${part} of ${totalParts}. Extract only transactions visible in this part.\n` : '';
+  return `You are a private finance OCR parser for Biswajit. Extract transactions from OCR/bank statement text.${partLine}
+
+Return ONLY valid JSON. No markdown. No explanations.
+Schema:
+{ "transactions": [ { "date":"YYYY-MM-DD", "merchant":"clean merchant", "description":"short original detail", "amount": -12.34, "source":"Commerzbank|Amazon Visa|OCR|PDF|CSV", "category":"one of: Income, Housing, Utilities, Groceries, Indian Staples, Household, Family Food, Family Activity, Kids, Transport, Insurance, Pension, Investments, Loan / Banking, Telecom, India Transfer, Shopping, Health, Subscriptions, Misc / Review", "subcategory":"short", "essential": true, "avoidable": false, "confidence": 0.0 } ] }
+
+Rules:
+- Ignore opening/closing balances, old balance, new balance, card limits, consumed limit, page totals, and summary rows.
+- Ignore Amazon points lines and 0.00 point debit rows.
+- Amounts with minus are expenses. Salary/Kindergeld are positive income.
+- Convert comma decimals to dot decimals.
+- For dates like 25 Mar use year ${defaultYear}.
+- Vaghani, Kabul Markt, Namaste Deutschland, Indian stores = Indian Staples.
+- EDEKA, Penny, REWE, Aldi, Kaufland = Groceries.
+- Badeland, Bmoovd, kids activity food = Family Activity or Family Food, not luxury restaurant.
+- Vodafone = Telecom. LSW/Einhundert = Utilities. Neuland = Housing. Scalable = Investments. Swiss Life = Pension.
+
+TEXT:
+${text}`;
+}
+
 async function extractTransactionsWithAI(text, options = {}) {
   const defaultYear = options.year || new Date().getFullYear();
   const model = selectedModel(options.model);
-  const prompt = `You are a private finance OCR parser for Biswajit. Extract transactions from OCR/bank statement text.\n\nReturn ONLY valid JSON. No markdown. No explanations.\nSchema:\n{ "transactions": [ { "date":"YYYY-MM-DD", "merchant":"clean merchant", "description":"short original detail", "amount": -12.34, "source":"Commerzbank|Amazon Visa|OCR|PDF|CSV", "category":"one of: Income, Housing, Utilities, Groceries, Indian Staples, Household, Family Food, Family Activity, Kids, Transport, Insurance, Pension, Investments, Loan / Banking, Telecom, India Transfer, Shopping, Health, Subscriptions, Misc / Review", "subcategory":"short", "essential": true, "avoidable": false, "confidence": 0.0 } ] }\n\nRules:\n- Ignore Amazon points lines and 0.00 point debit rows.\n- Amounts with minus are expenses. Salary/Kindergeld are positive income.\n- Convert comma decimals to dot decimals.\n- For dates like 25 Mar use year ${defaultYear}.\n- Vaghani, Kabul Markt, Namaste Deutschland, Indian stores = Indian Staples.\n- EDEKA, Penny, REWE, Aldi, Kaufland = Groceries.\n- Badeland, Bmoovd, kids activity food = Family Activity or Family Food, not luxury restaurant.\n- Vodafone = Telecom. LSW/Einhundert = Utilities. Neuland = Housing. Scalable = Investments. Swiss Life = Pension.\n\nTEXT:\n${text.slice(0, 12000)}`;
+  const chunks = chunkText(text);
+  const rawParts = [];
+  const errors = [];
+  const transactions = [];
 
-  try {
-    const data = await ollamaFetch('/api/generate', { model, prompt, stream: false, format: 'json' }, { timeoutMs: 120000 });
-    const raw = data.response || '{}';
-    const parsed = JSON.parse(raw);
-    return { ok: true, model, transactions: parsed.transactions || [], raw };
-  } catch (e) {
-    return { ok: false, model, error: ollamaError(e), transactions: fallbackExtract(text, defaultYear), raw: null };
+  for (let i = 0; i < chunks.length; i++) {
+    try {
+      const prompt = extractionPrompt(chunks[i], defaultYear, i + 1, chunks.length);
+      const data = await ollamaFetch('/api/generate', { model, prompt, stream: false, format: 'json' }, { timeoutMs: 90000 });
+      const raw = data.response || '{}';
+      rawParts.push(raw);
+      const parsed = JSON.parse(raw);
+      transactions.push(...normalizeTransactions(parsed.transactions));
+    } catch (e) {
+      errors.push(`Part ${i + 1}/${chunks.length}: ${ollamaError(e)}`);
+    }
   }
+
+  if (transactions.length) {
+    return { ok: true, model, chunked: chunks.length > 1, chunks: chunks.length, transactions, raw: rawParts.join('\n') };
+  }
+
+  return {
+    ok: false,
+    model,
+    chunked: chunks.length > 1,
+    chunks: chunks.length,
+    error: errors.join('; ') || 'No valid transactions returned by AI',
+    transactions: fallbackExtract(text, defaultYear),
+    raw: rawParts.join('\n') || null
+  };
 }
 
 async function askAI(question, context) {

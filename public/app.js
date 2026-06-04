@@ -20,6 +20,7 @@ function formatUploadResult(data) {
   const lines = [
     `Processed ${data.fileName || 'file'} (${data.sourceType || 'unknown'})`,
     `Model: ${data.model || selectedModel()}`,
+    `AI chunks: ${data.chunks || 1}`,
     `OCR text: ${data.ocrChars || 0} characters`,
     `Saved: ${data.inserted || 0} transactions`,
     `Skipped duplicates/invalid rows: ${data.skipped || 0}`
@@ -28,6 +29,8 @@ function formatUploadResult(data) {
     lines.push('AI extraction: OK');
   } else {
     lines.push('AI extraction: unavailable, used OCR fallback');
+    if (data.saveBlocked) lines.push('Fallback rows were not saved. Review/retry before saving.');
+    if (data.fallbackSaved) lines.push('Fallback rows were saved by request.');
     if (data.aiError) lines.push(`AI detail: ${data.aiError}`);
   }
   return lines.join('\n');
@@ -36,6 +39,7 @@ async function uploadFile(){
   const f = document.getElementById('file').files[0]; if(!f) return alert('Select a file first');
   const fd = new FormData(); fd.append('file', f); fd.append('year', document.getElementById('year').value || '2026');
   fd.append('model', selectedModel());
+  fd.append('saveFallback', document.getElementById('saveFallback').checked ? 'true' : 'false');
   setUploadStatus('Scanning OCR/text, sending to local Ollama, saving to SQLite...');
   try {
     const data = await json('/api/upload', { method:'POST', body: fd });

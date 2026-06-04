@@ -5,6 +5,7 @@ header{display:flex;justify-content:space-between;align-items:center;padding:28p
 main{max-width:1200px;margin:24px auto;padding:0 18px}.card{background:var(--card);border-radius:18px;padding:20px;margin-bottom:18px;box-shadow:0 8px 24px rgba(16,24,40,.08)}
 .grid{display:grid;gap:18px}.cards{grid-template-columns:repeat(4,1fr)}.two{grid-template-columns:1fr 1fr}.metric{background:white;border-radius:18px;padding:20px;box-shadow:0 8px 24px rgba(16,24,40,.08)}.metric span{display:block;color:var(--muted);font-size:14px}.metric strong{font-size:30px;margin-top:8px;display:block}.pill{background:rgba(255,255,255,.18);padding:10px 14px;border-radius:999px}
 button{background:var(--brand);color:white;border:0;border-radius:12px;padding:11px 14px;font-weight:700;cursor:pointer} input,textarea{border:1px solid #d0d5dd;border-radius:12px;padding:10px;margin:6px;min-width:160px} textarea{width:100%;min-height:80px} pre{white-space:pre-wrap;background:#0b1220;color:#d7e1ff;border-radius:12px;padding:12px;max-height:220px;overflow:auto}
+.fallback-toggle{display:inline-flex;align-items:center;gap:6px;margin:6px;color:var(--muted);font-weight:700}.fallback-toggle input{min-width:auto;margin:0}
 pre.success{background:#ecfdf3;color:#05603a;border:1px solid #abefc6}
 pre.warning{background:#fffaeb;color:#93370d;border:1px solid #fedf89}
 pre.error{background:#fef3f2;color:#912018;border:1px solid #fecdca}
