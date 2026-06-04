@@ -1,5 +1,12 @@
 const eur = n => new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Number(n||0));
+const categories = [
+  'Income', 'Housing', 'Utilities', 'Groceries', 'Indian Staples', 'Household',
+  'Family Food', 'Family Activity', 'Kids', 'Transport', 'Insurance', 'Pension',
+  'Investments', 'Loan / Banking', 'Telecom', 'India Transfer', 'Shopping',
+  'Health', 'Subscriptions', 'Misc / Review', 'Uncategorized'
+];
 async function json(url, opts){ const r = await fetch(url, opts); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+function escapeHtml(value){ return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 function selectedModel(){ return document.getElementById('model').value || localStorage.getItem('financeModel') || 'llama3.2'; }
 function saveSelectedModel(){ localStorage.setItem('financeModel', selectedModel()); checkStatus(); }
 async function checkStatus(){
@@ -56,9 +63,17 @@ async function loadSummary(){
   fill('catTable', s.byCat.map(r=>[r.category, r.count, eur(r.total)]));
   fill('shopTable', s.byShop.map(r=>[r.merchant, r.category, eur(r.total)]));
 }
-async function loadTransactions(){ const m = document.getElementById('month').value; const rows = await json('/api/transactions?month='+encodeURIComponent(m)); fill('txTable', rows.map(r=>[r.tx_date, r.merchant, r.category, `<span class="${r.amount>=0?'amount-pos':'amount-neg'}">${eur(r.amount)}</span>`, Math.round((r.confidence||0)*100)+'%'])); }
+function categorySelect(row){
+  const options = categories.map(c => `<option value="${escapeHtml(c)}"${c === row.category ? ' selected' : ''}>${escapeHtml(c)}</option>`).join('');
+  return `<select class="category-select" data-transaction-id="${row.id}">${options}</select>`;
+}
+async function loadTransactions(){ const m = document.getElementById('month').value; const rows = await json('/api/transactions?month='+encodeURIComponent(m)); fill('txTable', rows.map(r=>[r.tx_date, r.merchant, categorySelect(r), `<span class="${r.amount>=0?'amount-pos':'amount-neg'}">${eur(r.amount)}</span>`, Math.round((r.confidence||0)*100)+'%'])); }
 async function loadForecast(){ const f = await json('/api/forecast'); forecast.textContent = eur(f.simpleAverageNet); }
 function fill(tableId, rows){ const tbody = document.querySelector(`#${tableId} tbody`); tbody.innerHTML = rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join(''); }
+async function updateCategory(id, category){
+  await json('/api/transactions/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({category})});
+  await loadSummary();
+}
 async function askAI(q){
   const question = q || document.getElementById('question').value; const month = document.getElementById('month').value;
   aiAnswer.textContent = 'Asking local Ollama...';
@@ -74,4 +89,7 @@ async function saveRule(){
   alert('Rule saved. Future imports will use it.');
 }
 document.getElementById('model').addEventListener('change', saveSelectedModel);
+document.addEventListener('change', e => {
+  if (e.target.classList.contains('category-select')) updateCategory(e.target.dataset.transactionId, e.target.value);
+});
 checkStatus(); loadAll();

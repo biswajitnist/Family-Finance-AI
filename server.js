@@ -17,6 +17,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 function normalizeMerchant(s='') { return String(s).replace(/\s+/g,' ').trim(); }
 function monthFromDate(date) { return String(date).slice(0,7); }
+const CATEGORIES = [
+  'Income', 'Housing', 'Utilities', 'Groceries', 'Indian Staples', 'Household',
+  'Family Food', 'Family Activity', 'Kids', 'Transport', 'Insurance', 'Pension',
+  'Investments', 'Loan / Banking', 'Telecom', 'India Transfer', 'Shopping',
+  'Health', 'Subscriptions', 'Misc / Review', 'Uncategorized'
+];
 function fingerprint(tx) {
   return crypto.createHash('sha1').update(`${tx.date}|${normalizeMerchant(tx.merchant).toUpperCase()}|${Number(tx.amount).toFixed(2)}|${tx.source||''}`).digest('hex');
 }
@@ -101,6 +107,13 @@ app.get('/api/transactions', async (req,res) => {
 });
 
 app.delete('/api/transactions/:id', async (req,res)=>{ await run('DELETE FROM transactions WHERE id=?',[req.params.id]); res.json({ok:true}); });
+
+app.patch('/api/transactions/:id', async (req,res) => {
+  const category = String(req.body.category || '').trim();
+  if (!CATEGORIES.includes(category)) return res.status(400).json({ error: 'Invalid category' });
+  const result = await run('UPDATE transactions SET category=? WHERE id=?', [category, req.params.id]);
+  res.json({ ok:true, changed: result.changes });
+});
 
 app.post('/api/rules', async (req,res) => {
   const r = req.body;
