@@ -50,9 +50,10 @@ function fallbackExtract(text, defaultYear = new Date().getFullYear()) {
     const d2 = l.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i);
     if (d1) currentDate = `${d1[3]}-${String(d1[2]).padStart(2,'0')}-${String(d1[1]).padStart(2,'0')}`;
     if (d2) currentDate = `${defaultYear}-${monthMap[d2[2].slice(0,3)]}-${String(d2[1]).padStart(2,'0')}`;
-    const amt = l.match(/([+-]?\d{1,3}(?:[\.\s]\d{3})*,\d{2}|[+-]?\d+,\d{2})\s*€?/);
-    if (amt && currentDate && !/Amazon points|Points Debit|Dashboard|Movements|Financing|Settings|Account/i.test(l)) {
-      const amount = parseFloat(amt[1].replace(/\./g,'').replace(/\s/g,'').replace(',','.'));
+    const amt = l.match(/([+-])?\s*(\d{1,3}(?:[\.\s]\d{3})*,\d{2}|\d+,\d{2})\s*€?/);
+    if (amt && currentDate && !/Amazon points|Points Debit|Dashboard|Movements|Financing|Settings|Account|Alter Kontostand|Neuer Kontostand|Kreditkartenlimit|Verbraucht/i.test(l)) {
+      const amountValue = parseFloat(amt[2].replace(/\./g,'').replace(/\s/g,'').replace(',','.'));
+      const amount = amt[1] === '-' ? -Math.abs(amountValue) : amountValue;
       let merchant = l.replace(amt[0], '').replace(/Compra en|Purchase at|Authorized/gi,'').trim();
       if (!merchant && i>0) merchant = lines[i-1].replace(/Compra en|Purchase at/gi,'').trim();
       if (merchant && Math.abs(amount) > 0) txs.push({ date: currentDate, merchant, description: l, amount, source: 'OCR/AI Fallback' });
@@ -76,12 +77,50 @@ function chunkText(text, maxChars = 4500) {
   return chunks;
 }
 
+function parseAmount(value) {
+  if (typeof value === 'number') return value;
+  const s = String(value || '').trim();
+  if (!s) return NaN;
+  const normalized = s.replace(/[^\d,.\-+]/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.');
+  return Number(normalized);
+}
+
+function signedAmountFromText(text) {
+  const s = String(text || '');
+  const match = s.match(/([+-])\s*(\d{1,3}(?:[.\s]\d{3})*[,.]\d{2}|\d+[,.]\d{2})\s*(?:€|EUR)?/i);
+  if (!match) return null;
+  const value = parseAmount(match[2]);
+  if (!Number.isFinite(value)) return null;
+  return match[1] === '-' ? -Math.abs(value) : Math.abs(value);
+}
+
+function signedAmount(tx) {
+  const rawAmount = parseAmount(tx.amount);
+  if (!Number.isFinite(rawAmount)) return NaN;
+  const category = String(tx.category || '').toUpperCase();
+  const rowText = `${tx.description || ''} ${tx.merchant || ''} ${tx.source || ''}`.toUpperCase();
+
+  const describedAmount = signedAmountFromText(`${tx.description || ''} ${tx.merchant || ''}`);
+  if (describedAmount !== null) return describedAmount;
+
+  const type = String(tx.type || tx.transactionType || tx.direction || '').toUpperCase();
+  if (/(DEBIT|EXPENSE|WITHDRAWAL|SOLL|LASTSCHRIFT|ABGANG)/.test(type)) return -Math.abs(rawAmount);
+  if (/(CREDIT|INCOME|DEPOSIT|HABEN|GUTSCHRIFT|EINGANG)/.test(type)) return Math.abs(rawAmount);
+
+  if (/INCOME|SALARY|GEHALT|KINDERGELD|GUTSCHRIFT/.test(category) || /GEHALT|KINDERGELD|GUTSCHRIFT|SALARY/.test(rowText)) {
+    return Math.abs(rawAmount);
+  }
+  if (!/INCOME/.test(category)) return -Math.abs(rawAmount);
+
+  return rawAmount;
+}
+
 function normalizeTransactions(rows) {
   return (Array.isArray(rows) ? rows : []).map(tx => ({
     date: String(tx.date || '').slice(0, 10),
     merchant: String(tx.merchant || '').trim(),
     description: String(tx.description || '').trim(),
-    amount: Number(tx.amount),
+    amount: signedAmount(tx),
     source: tx.source || 'AI Extracted',
     category: tx.category || 'Uncategorized',
     subcategory: tx.subcategory || '',
@@ -97,12 +136,13 @@ function extractionPrompt(text, defaultYear, part, totalParts) {
 
 Return ONLY valid JSON. No markdown. No explanations.
 Schema:
-{ "transactions": [ { "date":"YYYY-MM-DD", "merchant":"clean merchant", "description":"short original detail", "amount": -12.34, "source":"Commerzbank|Amazon Visa|OCR|PDF|CSV", "category":"one of: Income, Housing, Utilities, Groceries, Indian Staples, Household, Family Food, Family Activity, Kids, Transport, Insurance, Pension, Investments, Loan / Banking, Telecom, India Transfer, Shopping, Health, Subscriptions, Misc / Review", "subcategory":"short", "essential": true, "avoidable": false, "confidence": 0.0 } ] }
+{ "transactions": [ { "date":"YYYY-MM-DD", "merchant":"clean merchant", "description":"short original detail with original +/- sign if visible", "type":"DEBIT|CREDIT", "amount": -12.34, "source":"Commerzbank|Amazon Visa|OCR|PDF|CSV", "category":"one of: Income, Housing, Utilities, Groceries, Indian Staples, Household, Family Food, Family Activity, Kids, Transport, Insurance, Pension, Investments, Loan / Banking, Telecom, India Transfer, Shopping, Health, Subscriptions, Misc / Review", "subcategory":"short", "essential": true, "avoidable": false, "confidence": 0.0 } ] }
 
 Rules:
 - Ignore opening/closing balances, old balance, new balance, card limits, consumed limit, page totals, and summary rows.
 - Ignore Amazon points lines and 0.00 point debit rows.
-- Amounts with minus are expenses. Salary/Kindergeld are positive income.
+- Amounts with minus, debit, Soll, Lastschrift, Kartenzahlung, or withdrawal are expenses and MUST be negative.
+- Salary, Kindergeld, refund, Haben, Gutschrift, or deposit rows are income and MUST be positive.
 - Convert comma decimals to dot decimals.
 - For dates like 25 Mar use year ${defaultYear}.
 - Vaghani, Kabul Markt, Namaste Deutschland, Indian stores = Indian Staples.
