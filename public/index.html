@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Biswajit Finance Tracker</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Family Finance AI</h1>
+      <p>SQLite + OCR + Ollama. Private local finance cockpit.</p>
+    </div>
+    <div id="ollama" class="pill">Checking Ollama...</div>
+  </header>
+
+  <main>
+    <section class="card upload">
+      <h2>Upload Statement / Screenshot</h2>
+      <p>PDF, CSV, Excel, PNG, JPG. OCR hands text to Ollama, AI extracts transactions, then SQLite stores them.</p>
+      <input type="file" id="file" />
+      <input type="number" id="year" value="2026" />
+      <button onclick="uploadFile()">Scan → AI → Save</button>
+      <pre id="uploadResult"></pre>
+    </section>
+
+    <section class="grid cards">
+      <div class="metric"><span>Income</span><strong id="income">€0</strong></div>
+      <div class="metric"><span>Expenses</span><strong id="expenses">€0</strong></div>
+      <div class="metric"><span>Net Cashflow</span><strong id="net">€0</strong></div>
+      <div class="metric"><span>Forecast Avg Net</span><strong id="forecast">€0</strong></div>
+    </section>
+
+    <section class="card controls">
+      <label>Month <input id="month" value="2026-04" /></label>
+      <button onclick="loadAll()">Refresh</button>
+      <button onclick="askAI('How does this month look? Give surplus, risks and top actions.')">AI Month Review</button>
+      <button onclick="askAI('Show grocery and Indian staples cost by shop and explain if it is reasonable for an Indian family in Germany.')">AI Grocery Review</button>
+    </section>
+
+    <section class="grid two">
+      <div class="card">
+        <h2>Category Summary</h2>
+        <table id="catTable"><thead><tr><th>Category</th><th>Count</th><th>Total</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="card">
+        <h2>Grocery / Indian Staples by Shop</h2>
+        <table id="shopTable"><thead><tr><th>Shop</th><th>Category</th><th>Total</th></tr></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>AI Finance Assistant</h2>
+      <textarea id="question">What is my month-end cashflow and where is the pressure?</textarea>
+      <button onclick="askAI()">Ask Local Ollama</button>
+      <div id="aiAnswer" class="answer"></div>
+    </section>
+
+    <section class="card">
+      <h2>Transactions</h2>
+      <table id="txTable"><thead><tr><th>Date</th><th>Merchant</th><th>Category</th><th>Amount</th><th>Confidence</th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="card">
+      <h2>Merchant Learning Rule</h2>
+      <p>Add/override rules. Example: pattern = VAGHANI, category = Indian Staples.</p>
+      <input id="rulePattern" placeholder="Pattern e.g. VAGHANI" />
+      <input id="ruleMerchant" placeholder="Clean name" />
+      <input id="ruleCategory" placeholder="Category" />
+      <input id="ruleSub" placeholder="Subcategory" />
+      <button onclick="saveRule()">Save Rule</button>
+    </section>
+  </main>
+<script src="/app.js"></script>
+</body>
+</html>

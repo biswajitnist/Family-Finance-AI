@@ -1,0 +1,12 @@
+:root { --bg:#f5f7fb; --card:#fff; --text:#172033; --muted:#667085; --brand:#194b5f; --good:#0a8f48; --bad:#b42318; }
+*{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+header{display:flex;justify-content:space-between;align-items:center;padding:28px 40px;background:linear-gradient(135deg,#113a4b,#25677a);color:white} header h1{margin:0;font-size:30px} header p{margin:6px 0 0;color:#d8eef4}
+main{max-width:1200px;margin:24px auto;padding:0 18px}.card{background:var(--card);border-radius:18px;padding:20px;margin-bottom:18px;box-shadow:0 8px 24px rgba(16,24,40,.08)}
+.grid{display:grid;gap:18px}.cards{grid-template-columns:repeat(4,1fr)}.two{grid-template-columns:1fr 1fr}.metric{background:white;border-radius:18px;padding:20px;box-shadow:0 8px 24px rgba(16,24,40,.08)}.metric span{display:block;color:var(--muted);font-size:14px}.metric strong{font-size:30px;margin-top:8px;display:block}.pill{background:rgba(255,255,255,.18);padding:10px 14px;border-radius:999px}
+button{background:var(--brand);color:white;border:0;border-radius:12px;padding:11px 14px;font-weight:700;cursor:pointer} input,textarea{border:1px solid #d0d5dd;border-radius:12px;padding:10px;margin:6px;min-width:160px} textarea{width:100%;min-height:80px} pre{white-space:pre-wrap;background:#0b1220;color:#d7e1ff;border-radius:12px;padding:12px;max-height:220px;overflow:auto}
+pre.success{background:#ecfdf3;color:#05603a;border:1px solid #abefc6}
+pre.warning{background:#fffaeb;color:#93370d;border:1px solid #fedf89}
+pre.error{background:#fef3f2;color:#912018;border:1px solid #fecdca}
+pre:empty{display:none}
+table{width:100%;border-collapse:collapse} th,td{padding:10px;border-bottom:1px solid #e4e7ec;text-align:left} th{font-size:12px;text-transform:uppercase;color:var(--muted)} .amount-pos{color:var(--good);font-weight:700}.amount-neg{color:var(--bad);font-weight:700}.answer{white-space:pre-wrap;background:#f2f4f7;border-radius:12px;padding:14px;margin-top:10px;line-height:1.45}
+@media(max-width:900px){.cards,.two{grid-template-columns:1fr} header{display:block;padding:22px}.metric strong{font-size:24px}}

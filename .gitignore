@@ -1,0 +1,18 @@
+node_modules/
+
+# Local finance data and uploaded statements
+data/
+finance.db
+uploads/
+
+# Local secrets and machine files
+.env
+.env.*
+.DS_Store
+
+# Logs and runtime output
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
