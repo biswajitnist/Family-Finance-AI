@@ -1,0 +1,4 @@
+date,booking_date,vendor,description,amount,currency,type,category,reference_number
+2026-06-01,2026-06-01,Example Employer,Monthly salary,3500.00,EUR,credit,Salary,PAY-001
+2026-06-03,2026-06-04,REWE,Weekly groceries,54.32,EUR,debit,Grocery,CARD-102
+2026-06-05,2026-06-05,City Energy,Electricity bill,89.10,EUR,debit,Utilities,DD-204
